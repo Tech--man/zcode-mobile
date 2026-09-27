@@ -1,0 +1,11 @@
+<resources>
+    <!-- API 35 强制 edge-to-edge 会让 WebView 的 CSS 视口高度解析为 0
+         （vh/dvh/% 全部失效，h-dvh 页面塌陷黑屏），显式退出 -->
+    <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/zc_bg</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>
+    </style>
+</resources>
