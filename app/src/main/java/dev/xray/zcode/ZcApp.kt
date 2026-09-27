@@ -38,7 +38,13 @@ object ThemeCtx {
 
 class ZcApp : Application(), CameraXConfig.Provider {
     override fun attachBaseContext(base: Context) {
-        super.attachBaseContext(base)
+        super.attachBaseContext(ThemeCtx.wrap(base))
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        // 日志文件必须在 Application 层打开：调试 Activity 等非 Main 入口同样要落盘
+        dev.xray.zcode.web.WebLog.init(this)
     }
 
     /** 显式提供 Camera2 实现，绕开反射式配置解析（否则间歇性 "not configured properly" 崩溃）。 */

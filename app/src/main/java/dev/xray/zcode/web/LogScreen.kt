@@ -53,6 +53,7 @@ fun LogScreen(onBack: () -> Unit) {
         append("device: ${Build.MANUFACTURER} ${Build.MODEL}")
         append(" | android ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})")
         append(" | webview ${webViewVersion()}")
+        append(" | app ${buildVersion()}")
     }
 
     Column(Modifier.fillMaxSize().background(p.bg).statusBarsPadding()) {

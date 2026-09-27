@@ -35,10 +35,7 @@ class ServerStore(context: Context) {
     // 注：z.ai 远程页自带深色主题（html.dark），此开关对其无效，仅影响其他站点。
     var webLightScheme by mutableStateOf(prefs.getBoolean(KEY_WEB_LIGHT, false))
         private set
-    // 沉浸模式（隐藏系统栏）默认关闭：隐藏系统栏会使 WebView 的视口单位
-    // （vh/dvh/svh/%）全部解析为 0，使用这些单位布局的页面（如 z.ai 远程页的
-    // h-dvh）会整体塌陷为 0 高被裁剪——表现为"黑屏但无障碍可见"。默认改为
-    // 透明系统栏叠加（视觉接近沉浸，视口单位健康）。
+    // 沉浸模式（隐藏系统栏）默认关闭：视觉更接近全屏，但系统栏仍可由用户唤回。
     var immersive by mutableStateOf(prefs.getBoolean(KEY_IMMERSIVE, false))
         private set
 

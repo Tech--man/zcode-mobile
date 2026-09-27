@@ -30,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
@@ -60,20 +61,19 @@ class MainActivity : ComponentActivity() {
         }
 
     override fun attachBaseContext(base: Context) {
-        super.attachBaseContext(base)
+        super.attachBaseContext(ThemeCtx.wrap(base))
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         store = ServerStore(this)
-        dev.xray.zcode.web.WebLog.init(this)
         dev.xray.zcode.web.WebLog.log(
             "app",
-            "start model=${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}" +
+            "start build=${dev.xray.zcode.web.buildVersion()}" +
+                " model=${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}" +
                 " android=${android.os.Build.VERSION.RELEASE} webview=${dev.xray.zcode.web.webViewVersion()}",
         )
-        // 不再 edge-to-edge（decorFits=false 会使 WebView 的 CSS 视口高度为 0，
-        // vh/dvh/% 全部失效——z.ai 远程页因此黑屏）。系统栏由主题管理。
+        // 系统栏由主题管理（真机实测：edge-to-edge 与否都不影响 CSS 视口，黑屏根因见 WebViewLayer 注释）
         setContent {
             ZcTheme {
                 AppRoot(
@@ -98,6 +98,12 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+        // WebView 宿主层必须插在 ComposeView **之下**、作为窗口内容层的经典 View：
+        // Compose AndroidView interop 会让 Blink 的 CSS 视口高度恒为 0（详见 WebViewLayer 注释）。
+        val webLayer = android.widget.FrameLayout(this)
+        dev.xray.zcode.web.WebViewLayer.container = webLayer
+        findViewById<android.view.ViewGroup>(android.R.id.content)
+            .addView(webLayer, 0, android.view.ViewGroup.LayoutParams(-1, -1))
     }
 
     override fun onDestroy() {
@@ -128,8 +134,14 @@ private fun AppRoot(
     launchFilePicker: (ValueCallback<Array<Uri>>) -> Unit,
 ) {
     var screen by remember { mutableStateOf<Screen>(Screen.Home) }
+    // 会话页时根层必须透明：WebView 在 ComposeView 之下，opaque 背景会把它整个盖掉
+    val transparentRoot = screen is Screen.Session
 
-    Box(Modifier.fillMaxSize().background(zcPalette().bg)) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(if (transparentRoot) Color.Transparent else zcPalette().bg),
+    ) {
         when (val s = screen) {
             is Screen.Home -> HomeScreen(
                 store = store,

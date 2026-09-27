@@ -27,6 +27,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -41,7 +42,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -51,25 +51,28 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
 import dev.xray.zcode.R
 import dev.xray.zcode.data.ServerStore
@@ -84,21 +87,6 @@ import dev.xray.zcode.ui.zcPalette
 private const val DESKTOP_UA =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 private const val BAR_HEIGHT = 46
-
-/**
- * dvh 兜底：某些 WebView 状态下（如 edge-to-edge/系统栏组合）CSS 视口高度解析为 0，
- * 使用 100dvh 布局的页面（如 z.ai 远程页的 h-dvh）会整体塌陷为 0 高被裁剪——
- * "黑屏但无障碍可见"。用 innerHeight 换算真实像素注入覆盖，并在 resize 时刷新。
- */
-private const val DVH_SHIM_JS =
-    "(function(){if(window.__zcVhFix)return;window.__zcVhFix=1;" +
-        "var s=document.createElement('style');s.id='zc-vh-fix';" +
-        "s.textContent='.h-dvh{height:calc(var(--zc-vh,1vh)*100)!important}" +
-        ".min-h-dvh{min-height:calc(var(--zc-vh,1vh)*100)!important}" +
-        ".max-h-dvh{max-height:calc(var(--zc-vh,1vh)*100)!important}';" +
-        "document.head.appendChild(s);" +
-        "function f(){document.documentElement.style.setProperty('--zc-vh',(window.innerHeight/100)+'px')}" +
-        "f();window.addEventListener('resize',f);})()"
 
 /** 跨页面导航复用 WebView 实例，保持 ZCode 会话不断。 */
 object WebPool {
@@ -165,7 +153,11 @@ object WebPool {
             setAcceptCookie(true)
             setAcceptThirdPartyCookies(wv, true)
         }
-        WebLog.log("web", "obtain url=$url desktopUa=$desktopUa lightScheme=$forceLightScheme webview=${webViewVersion()}")
+        WebLog.log(
+            "web",
+            "obtain url=$url desktopUa=$desktopUa lightScheme=$forceLightScheme " +
+                "build=${buildVersion()} webview=${webViewVersion()}",
+        )
         WebLog.log("web", "ua=${wv.settings.userAgentString}")
         wv.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
@@ -185,7 +177,7 @@ object WebPool {
                 WebLog.log("page", "start $url")
                 onError(null)
                 onProgress(5)
-                view.evaluateJavascript(DVH_SHIM_JS, null)
+                probeViewport(view, "start")
             }
 
             override fun shouldInterceptRequest(
@@ -202,7 +194,7 @@ object WebPool {
             override fun onPageFinished(view: WebView, url: String?) {
                 onProgress(100)
                 onHistoryChange()
-                view.evaluateJavascript(DVH_SHIM_JS, null)
+                probeViewport(view, "finish")
                 // 空/卡加载壳 + 失效链接诊断：finish 抓 body 长度与前 300 字符
                 view.evaluateJavascript(
                     "(function(){var t=document.body?document.body.innerText:'';return t.length+'|'+t.slice(0,300);})()",
@@ -230,6 +222,15 @@ object WebPool {
                         }
                     }
                 }, 8000)
+                // 配对完成/挂载后是黑屏的实际观测时刻，分别取样避免"跨时刻比较"的老问题
+                view.postDelayed({
+                    if (WebPool.webView !== view) return@postDelayed
+                    probeViewport(view, "t20s")
+                }, 20000)
+                view.postDelayed({
+                    if (WebPool.webView !== view) return@postDelayed
+                    probeViewport(view, "t40s")
+                }, 40000)
                 // 中继配对超时：20 秒后仍停在「正在连接中转服务」→ 明确错误卡（该页面无可用交互，阻塞无副作用）
                 view.postDelayed({
                     if (WebPool.webView !== view) return@postDelayed
@@ -462,29 +463,61 @@ fun WebScreen(
     }
 
     val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val density = LocalDensity.current
+    // WebView 在 ComposeView 之下，靠经典 View 的 margin 复刻原来的内缩链
+    val topPx = if (immersive) 0 else with(density) { (statusBarTop + BAR_HEIGHT.dp).roundToPx() }
+    val bottomPx = with(density) {
+        (WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() +
+            WindowInsets.ime.asPaddingValues().calculateBottomPadding()).roundToPx()
+    }
 
-    Box(Modifier.fillMaxSize().background(p.bg)) {
-        key(reloadKey) {
-            AndroidView(
-                factory = { ctx ->
-                    WebPool.obtain(
-                        ctx,
-                        url,
-                        desktopUa,
-                        store.webLightScheme,
-                        launchFilePicker,
-                        onError = { error = it },
-                        onProgress = { progress = it },
-                        onHistoryChange = { canGoBack = (webRef ?: WebPool.webView)?.canGoBack() == true },
-                        onSoftHint = { softHint = it },
-                    ).also { webRef = it }
-                },
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(top = if (immersive) 0.dp else statusBarTop + BAR_HEIGHT.dp)
-                    .navigationBarsPadding()
-                    .imePadding(),
+    // 本层必须透明：WebView 不在 Compose 树里，opaque 背景会把它整个盖住；
+    // 页面加载期的底色由宿主层承担。
+    SideEffect { WebViewLayer.container?.setBackgroundColor(p.bg.toArgb()) }
+
+    Box(Modifier.fillMaxSize()) {
+        DisposableEffect(reloadKey, url) {
+            val layer = WebViewLayer.container
+            if (layer == null) {
+                WebLog.log("web", "WebViewLayer.container 未就绪，无法挂载 WebView")
+                return@DisposableEffect onDispose {}
+            }
+            val wv = WebPool.obtain(
+                context,
+                url,
+                desktopUa,
+                store.webLightScheme,
+                launchFilePicker,
+                onError = { error = it },
+                onProgress = { progress = it },
+                onHistoryChange = { canGoBack = (webRef ?: WebPool.webView)?.canGoBack() == true },
+                onSoftHint = { softHint = it },
             )
+            webRef = wv
+            (wv.parent as? ViewGroup)?.removeView(wv)
+            layer.addView(
+                wv,
+                0,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                ).apply {
+                    topMargin = topPx
+                    bottomMargin = bottomPx
+                },
+            )
+            onDispose {
+                (wv.parent as? ViewGroup)?.removeView(wv)
+                webRef = null
+            }
+        }
+        LaunchedEffect(topPx, bottomPx) {
+            val lp = (webRef?.layoutParams as? FrameLayout.LayoutParams) ?: return@LaunchedEffect
+            if (lp.topMargin != topPx || lp.bottomMargin != bottomPx) {
+                lp.topMargin = topPx
+                lp.bottomMargin = bottomPx
+                webRef?.requestLayout()
+            }
         }
 
         // 顶栏（沉浸时浮层，非沉浸时实体）
@@ -531,6 +564,7 @@ fun WebScreen(
                                 ZcMenuItem("沉浸模式(隐藏系统栏)", checked = immersive),
                                 ZcMenuItem("桌面 UA", checked = desktopUa),
                                 ZcMenuItem("网页浅色兼容", checked = store.webLightScheme),
+                                ZcMenuItem("诊断:视口探针"),
                                 ZcMenuItem("在浏览器打开"),
                                 ZcMenuItem("复制链接"),
                                 ZcMenuItem("清除站点数据并刷新"),
@@ -544,7 +578,7 @@ fun WebScreen(
                                     1 -> {
                                         immersive = !immersive
                                         store.applyImmersive(immersive)
-                                        WebLog.log("web", "immersive=$immersive (hide 会致 vh/dvh=0，页面可能塌陷)")
+                                        WebLog.log("web", "immersive=$immersive")
                                     }
                                     2 -> {
                                         desktopUa = !desktopUa
@@ -567,15 +601,23 @@ fun WebScreen(
                                             Toast.LENGTH_SHORT,
                                         ).show()
                                     }
-                                    4 -> try {
+                                    4 -> {
+                                        val wv = webRef ?: WebPool.webView
+                                        if (wv == null) {
+                                            Toast.makeText(context, "尚无 WebView 实例", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            probeViewport(wv, "manual", context)
+                                        }
+                                    }
+                                    5 -> try {
                                         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
                                     } catch (_: ActivityNotFoundException) {
                                     }
-                                    5 -> {
+                                    6 -> {
                                         clipboard.setText(AnnotatedString(url))
                                         Toast.makeText(context, "已复制链接", Toast.LENGTH_SHORT).show()
                                     }
-                                    6 -> {
+                                    7 -> {
                                         // 清 ServiceWorker/Cache/localStorage/Cookie，排除站点级坏状态
                                         WebPool.webView?.evaluateJavascript(
                                             "(function(){try{if(navigator.serviceWorker){navigator.serviceWorker.getRegistrations().then(function(rs){rs.forEach(function(r){r.unregister()})})}if(window.caches){caches.keys().then(function(ks){ks.forEach(function(k){caches.delete(k)})})}localStorage.clear();sessionStorage.clear()}catch(e){}return 'ok'})()",
@@ -592,7 +634,7 @@ fun WebScreen(
                                         WebPool.webView?.reload()
                                         Toast.makeText(context, "已清除站点数据并刷新", Toast.LENGTH_SHORT).show()
                                     }
-                                    7 -> onOpenLogs()
+                                    8 -> onOpenLogs()
                                 }
                             },
                         )

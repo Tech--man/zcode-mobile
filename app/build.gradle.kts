@@ -12,8 +12,8 @@ android {
         applicationId = "dev.xray.zcode"
         minSdk = 26
         targetSdk = 35
-        versionCode = 13
-        versionName = "2.1"
+        versionCode = 21
+        versionName = "2.9"
     }
 
     buildTypes {
@@ -24,6 +24,8 @@ android {
 
     buildFeatures {
         compose = true
+        // 版本标识必须进运行时日志：此前设备上跑的是哪次构建无法从日志判定
+        buildConfig = true
     }
 
     compileOptions {

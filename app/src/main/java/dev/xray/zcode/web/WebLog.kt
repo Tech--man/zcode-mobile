@@ -3,10 +3,14 @@ package dev.xray.zcode.web
 import android.content.Context
 import android.util.Log
 import android.webkit.WebView
+import dev.xray.zcode.BuildConfig
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+/** 本次运行的构建标识：所有关键日志行都带它，避免"日志与安装包对不上"的版本漂移。 */
+fun buildVersion(): String = "${BuildConfig.VERSION_NAME}(${BuildConfig.VERSION_CODE})"
 
 fun webViewVersion(): String = try {
     WebView.getCurrentWebViewPackage()?.versionName ?: "未知"
