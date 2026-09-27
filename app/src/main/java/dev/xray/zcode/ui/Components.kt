@@ -66,7 +66,7 @@ fun ZcText(
     )
 }
 
-/** 主按钮（sky 实心）与次按钮（描边），按压 alpha 反馈，无涟漪无阴影。 */
+/** 主按钮（sky 实心）与次按钮（neutral 实底 + 描边），按压 alpha 反馈，无涟漪无阴影。 */
 @Composable
 fun ZcButton(
     label: String,
@@ -86,10 +86,12 @@ fun ZcButton(
         modifier = modifier
             .height(height)
             .clip(shape)
-            .background(if (primary) p.brand else Color.Transparent)
+            .background(if (primary) p.brand else p.surfaceAlt)
             .border(1.dp, if (primary) Color.Transparent else p.border, shape)
             .alpha(contentAlpha)
-            .clickable(interactionSource = interaction, indication = null, enabled = enabled, onClick = onClick),
+            .clickable(interactionSource = interaction, indication = null, enabled = enabled, onClick = onClick)
+            // padding 在 clickable 之后：只约束内容区，点击区域仍是整个按钮
+            .padding(horizontal = 22.dp),
         contentAlignment = Alignment.Center,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {

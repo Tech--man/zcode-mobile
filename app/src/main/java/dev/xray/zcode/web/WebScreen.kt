@@ -718,19 +718,19 @@ fun WebScreen(
                         WebPool.destroy()
                         webRef = null
                         reloadKey++
-                    })
-                    Spacer(Modifier.height(8.dp))
+                    }, modifier = Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(10.dp))
                     ZcButton("重新扫码", primary = false, onClick = {
                         error = null
                         onRescan()
-                    })
-                    Spacer(Modifier.height(8.dp))
+                    }, modifier = Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(10.dp))
                     ZcButton("复制链接", primary = false, onClick = {
                         clipboard.setText(AnnotatedString(url))
                         Toast.makeText(context, "已复制链接", Toast.LENGTH_SHORT).show()
-                    })
-                    Spacer(Modifier.height(8.dp))
-                    ZcButton("返回", primary = false, onClick = onExit)
+                    }, modifier = Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(10.dp))
+                    ZcButton("返回", primary = false, onClick = onExit, modifier = Modifier.fillMaxWidth())
                 }
             }
         }

@@ -50,5 +50,6 @@ app/src/main/java/dev/xray/zcode/
 | 版本 | 要点 |
 | --- | --- |
 | v0.0.1 | 首个版本：连接管理 / 扫码 / 专注模式 / 主题 / 会话保持；release 本地签名 + tag 触发 GitHub Actions 发布 |
+| v0.0.2 | 按钮组件修复：内容内边距 + 次按钮实底配色（对齐 ZCode neutral+sky token），错误弹窗按钮等宽竖排 |
 
 > 发布前的内部迭代曾按 v1.x–v2.10 编号（要点：v2.1 WebView 壳与 dvh 塌陷 shim → v2.9 黑屏根因修复 → v2.10 专注模式），该线已归档，版本自 0.0.1 重新起算。
