@@ -28,8 +28,6 @@
 2. **会话页 Compose 根层必须保持透明**，否则会盖住其下的 WebView。
 3. **`values-v35` 的 edge-to-edge opt-out 保留**：重新开启会触发 dvh=0 塌陷（黑屏复现）。
 
-完整证据链、排除清单与复现工装：`docs/DEBUGGING-黑屏.md`、`tools/dvh-replica.html`。
-
 ## 项目结构
 
 ```

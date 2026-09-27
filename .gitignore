@@ -21,3 +21,6 @@ local.properties
 .video_agent/
 .zcode/
 .zcodeignore
+
+# 本地文档（仅本机保留，不入库）
+docs/
