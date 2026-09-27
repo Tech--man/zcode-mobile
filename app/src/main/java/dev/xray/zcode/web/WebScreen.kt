@@ -14,7 +14,9 @@ import android.webkit.RenderProcessGoneDetail
 import android.webkit.SslErrorHandler
 import android.webkit.WebResourceResponse
 import android.os.Environment
+import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.webkit.CookieManager
@@ -33,6 +35,8 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
@@ -62,13 +66,9 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.ime
@@ -83,6 +83,7 @@ import dev.xray.zcode.ui.ZcMenu
 import dev.xray.zcode.ui.ZcMenuItem
 import dev.xray.zcode.ui.ZcText
 import dev.xray.zcode.ui.zcPalette
+import kotlin.math.abs
 
 private const val DESKTOP_UA =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
@@ -417,11 +418,12 @@ fun WebScreen(
 ) {
     val p = zcPalette()
     val context = LocalContext.current
-    val view = LocalView.current
     val clipboard = LocalClipboardManager.current
     val host = UrlUtils.hostOf(url)
 
-    var immersive by remember { mutableStateOf(store.immersive) }
+    // 专注模式：系统栏常驻，顶栏默认隐藏，下拉浮现、上滑隐没（沿用 immersive 偏好键）
+    var focus by remember { mutableStateOf(store.immersive) }
+    var barVisible by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
     var canGoBack by remember { mutableStateOf(false) }
     var progress by remember { mutableStateOf(0) }
@@ -432,26 +434,9 @@ fun WebScreen(
     var reloadKey by remember { mutableStateOf(0) }
     var softHint by remember { mutableStateOf<String?>(null) }
 
-    val insetsController = remember {
-        val window = (context as? android.app.Activity)?.window
-        window?.let { WindowCompat.getInsetsController(it, view) }
-    }
-
-    // 沉浸模式：隐藏系统栏，滑动临时唤回
-    LaunchedEffect(immersive) {
-        val controller = insetsController ?: return@LaunchedEffect
-        if (immersive) {
-            controller.systemBarsBehavior =
-                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            controller.hide(WindowInsetsCompat.Type.systemBars())
-        } else {
-            controller.show(WindowInsetsCompat.Type.systemBars())
-        }
-    }
-    DisposableEffect(Unit) {
-        onDispose {
-            insetsController?.show(WindowInsetsCompat.Type.systemBars())
-        }
+    // 专注模式下顶栏隐藏时，页面加载没有进度指示：加载中自动唤出顶栏
+    LaunchedEffect(progress) {
+        if (focus && progress in 1..99) barVisible = true
     }
 
     BackHandler(enabled = canGoBack) {
@@ -465,7 +450,12 @@ fun WebScreen(
     val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val density = LocalDensity.current
     // WebView 在 ComposeView 之下，靠经典 View 的 margin 复刻原来的内缩链
-    val topPx = if (immersive) 0 else with(density) { (statusBarTop + BAR_HEIGHT.dp).roundToPx() }
+    // 专注模式顶栏默认隐藏：网页贴状态栏；唤出的顶栏以浮层覆盖网页顶部
+    val topPx = if (focus) {
+        with(density) { statusBarTop.roundToPx() }
+    } else {
+        with(density) { (statusBarTop + BAR_HEIGHT.dp).roundToPx() }
+    }
     val bottomPx = with(density) {
         (WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() +
             WindowInsets.ime.asPaddingValues().calculateBottomPadding()).roundToPx()
@@ -494,6 +484,31 @@ fun WebScreen(
                 onSoftHint = { softHint = it },
             )
             webRef = wv
+            // 手势观察（非拦截，恒 return false）：WebView 在 ComposeView 之下，
+            // 网页区域的触摸到不了 Compose，专注模式的下拉/上滑只能在这里探测
+            val swipeSlop = ViewConfiguration.get(wv.context).scaledTouchSlop * 4
+            var anchorX = 0f
+            var anchorY = 0f
+            wv.setOnTouchListener { _, e ->
+                when (e.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        anchorX = e.rawX
+                        anchorY = e.rawY
+                    }
+                    MotionEvent.ACTION_MOVE -> if (focus) {
+                        val dx = e.rawX - anchorX
+                        val dy = e.rawY - anchorY
+                        // 竖直位移过阈值且明显大于横向位移才算滑动；
+                        // 触发后重置锚点，同一手势内方向反转可再次触发
+                        if (abs(dy) > swipeSlop && abs(dy) > abs(dx) * 1.5f) {
+                            barVisible = dy > 0f
+                            anchorX = e.rawX
+                            anchorY = e.rawY
+                        }
+                    }
+                }
+                false
+            }
             (wv.parent as? ViewGroup)?.removeView(wv)
             layer.addView(
                 wv,
@@ -507,6 +522,7 @@ fun WebScreen(
                 },
             )
             onDispose {
+                wv.setOnTouchListener(null)
                 (wv.parent as? ViewGroup)?.removeView(wv)
                 webRef = null
             }
@@ -520,142 +536,149 @@ fun WebScreen(
             }
         }
 
-        // 顶栏（沉浸时浮层，非沉浸时实体）
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(if (immersive) p.topBar else p.surface),
+        // 顶栏：专注模式为下拉唤出的半透明浮层（覆盖网页顶部），否则常驻实体
+        AnimatedVisibility(
+            visible = !focus || barVisible,
+            enter = slideInVertically { -it } + fadeIn(),
+            exit = slideOutVertically { -it } + fadeOut(),
         ) {
-            if (!immersive) Box(Modifier.statusBarsPadding())
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(BAR_HEIGHT.dp)
-                    .padding(horizontal = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                    .background(if (focus) p.topBar else p.surface),
             ) {
-                ZcIconButton(icon = R.drawable.ic_back, contentDescription = "返回", onClick = onExit)
-                ZcText(
-                    host,
-                    size = 14.sp,
-                    mono = true,
+                Box(Modifier.statusBarsPadding())
+                Row(
                     modifier = Modifier
-                        .weight(1f)
+                        .fillMaxWidth()
+                        .height(BAR_HEIGHT.dp)
                         .padding(horizontal = 6.dp),
-                )
-                ZcIconButton(
-                    icon = R.drawable.ic_refresh,
-                    contentDescription = "刷新",
-                    onClick = {
-                        error = null
-                        webRef?.reload()
-                    },
-                )
-                Box {
-                    ZcIconButton(
-                        icon = R.drawable.ic_more,
-                        contentDescription = "菜单",
-                        onClick = { menuOpen = !menuOpen },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    ZcIconButton(icon = R.drawable.ic_back, contentDescription = "返回", onClick = onExit)
+                    ZcText(
+                        host,
+                        size = 14.sp,
+                        mono = true,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 6.dp),
                     )
-                    if (menuOpen) {
-                        ZcMenu(
-                            items = listOf(
-                                ZcMenuItem("刷新"),
-                                ZcMenuItem("沉浸模式(隐藏系统栏)", checked = immersive),
-                                ZcMenuItem("桌面 UA", checked = desktopUa),
-                                ZcMenuItem("网页浅色兼容", checked = store.webLightScheme),
-                                ZcMenuItem("诊断:视口探针"),
-                                ZcMenuItem("在浏览器打开"),
-                                ZcMenuItem("复制链接"),
-                                ZcMenuItem("清除站点数据并刷新"),
-                                ZcMenuItem("调试日志"),
-                            ),
-                            onDismiss = { menuOpen = false },
-                            onSelect = { index ->
-                                menuOpen = false
-                                when (index) {
-                                    0 -> webRef?.reload()
-                                    1 -> {
-                                        immersive = !immersive
-                                        store.applyImmersive(immersive)
-                                        WebLog.log("web", "immersive=$immersive")
-                                    }
-                                    2 -> {
-                                        desktopUa = !desktopUa
-                                        store.applyDesktopUa(desktopUa)
-                                        WebPool.webView?.let {
-                                            WebPool.applyUa(it, desktopUa)
-                                            it.reload()
-                                        }
-                                    }
-                                    3 -> {
-                                        // 网页浅色兼容：WebView 独立浅色上下文，需整体重建
-                                        store.applyWebLightScheme(!store.webLightScheme)
-                                        WebPool.destroy()
-                                        webRef = null
-                                        reloadKey++
-                                        WebLog.log("web", "light compat toggled: ${store.webLightScheme}")
-                                        Toast.makeText(
-                                            context,
-                                            if (store.webLightScheme) "网页浅色兼容：开" else "网页浅色兼容：关",
-                                            Toast.LENGTH_SHORT,
-                                        ).show()
-                                    }
-                                    4 -> {
-                                        val wv = webRef ?: WebPool.webView
-                                        if (wv == null) {
-                                            Toast.makeText(context, "尚无 WebView 实例", Toast.LENGTH_SHORT).show()
-                                        } else {
-                                            probeViewport(wv, "manual", context)
-                                        }
-                                    }
-                                    5 -> try {
-                                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                                    } catch (_: ActivityNotFoundException) {
-                                    }
-                                    6 -> {
-                                        clipboard.setText(AnnotatedString(url))
-                                        Toast.makeText(context, "已复制链接", Toast.LENGTH_SHORT).show()
-                                    }
-                                    7 -> {
-                                        // 清 ServiceWorker/Cache/localStorage/Cookie，排除站点级坏状态
-                                        WebPool.webView?.evaluateJavascript(
-                                            "(function(){try{if(navigator.serviceWorker){navigator.serviceWorker.getRegistrations().then(function(rs){rs.forEach(function(r){r.unregister()})})}if(window.caches){caches.keys().then(function(ks){ks.forEach(function(k){caches.delete(k)})})}localStorage.clear();sessionStorage.clear()}catch(e){}return 'ok'})()",
-                                            null,
-                                        )
-                                        try {
-                                            android.webkit.WebStorage.getInstance().deleteAllData()
-                                        } catch (_: Exception) {
-                                        }
-                                        WebPool.webView?.clearCache(true)
-                                        CookieManager.getInstance().removeAllCookies(null)
-                                        CookieManager.getInstance().flush()
-                                        WebLog.log("web", "site data cleared, reloading")
-                                        WebPool.webView?.reload()
-                                        Toast.makeText(context, "已清除站点数据并刷新", Toast.LENGTH_SHORT).show()
-                                    }
-                                    8 -> onOpenLogs()
-                                }
-                            },
+                    ZcIconButton(
+                        icon = R.drawable.ic_refresh,
+                        contentDescription = "刷新",
+                        onClick = {
+                            error = null
+                            webRef?.reload()
+                        },
+                    )
+                    Box {
+                        ZcIconButton(
+                            icon = R.drawable.ic_more,
+                            contentDescription = "菜单",
+                            onClick = { menuOpen = !menuOpen },
                         )
+                        if (menuOpen) {
+                            ZcMenu(
+                                items = listOf(
+                                    ZcMenuItem("刷新"),
+                                    ZcMenuItem("专注模式(上滑隐藏顶栏)", checked = focus),
+                                    ZcMenuItem("桌面 UA", checked = desktopUa),
+                                    ZcMenuItem("网页浅色兼容", checked = store.webLightScheme),
+                                    ZcMenuItem("诊断:视口探针"),
+                                    ZcMenuItem("在浏览器打开"),
+                                    ZcMenuItem("复制链接"),
+                                    ZcMenuItem("清除站点数据并刷新"),
+                                    ZcMenuItem("调试日志"),
+                                ),
+                                onDismiss = { menuOpen = false },
+                                onSelect = { index ->
+                                    menuOpen = false
+                                    when (index) {
+                                        0 -> webRef?.reload()
+                                        1 -> {
+                                            focus = !focus
+                                            barVisible = false
+                                            store.applyImmersive(focus)
+                                            WebLog.log("web", "focus=$focus")
+                                        }
+                                        2 -> {
+                                            desktopUa = !desktopUa
+                                            store.applyDesktopUa(desktopUa)
+                                            WebPool.webView?.let {
+                                                WebPool.applyUa(it, desktopUa)
+                                                it.reload()
+                                            }
+                                        }
+                                        3 -> {
+                                            // 网页浅色兼容：WebView 独立浅色上下文，需整体重建
+                                            store.applyWebLightScheme(!store.webLightScheme)
+                                            WebPool.destroy()
+                                            webRef = null
+                                            reloadKey++
+                                            WebLog.log("web", "light compat toggled: ${store.webLightScheme}")
+                                            Toast.makeText(
+                                                context,
+                                                if (store.webLightScheme) "网页浅色兼容：开" else "网页浅色兼容：关",
+                                                Toast.LENGTH_SHORT,
+                                            ).show()
+                                        }
+                                        4 -> {
+                                            val wv = webRef ?: WebPool.webView
+                                            if (wv == null) {
+                                                Toast.makeText(context, "尚无 WebView 实例", Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                probeViewport(wv, "manual", context)
+                                            }
+                                        }
+                                        5 -> try {
+                                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                                        } catch (_: ActivityNotFoundException) {
+                                        }
+                                        6 -> {
+                                            clipboard.setText(AnnotatedString(url))
+                                            Toast.makeText(context, "已复制链接", Toast.LENGTH_SHORT).show()
+                                        }
+                                        7 -> {
+                                            // 清 ServiceWorker/Cache/localStorage/Cookie，排除站点级坏状态
+                                            WebPool.webView?.evaluateJavascript(
+                                                "(function(){try{if(navigator.serviceWorker){navigator.serviceWorker.getRegistrations().then(function(rs){rs.forEach(function(r){r.unregister()})})}if(window.caches){caches.keys().then(function(ks){ks.forEach(function(k){caches.delete(k)})})}localStorage.clear();sessionStorage.clear()}catch(e){}return 'ok'})()",
+                                                null,
+                                            )
+                                            try {
+                                                android.webkit.WebStorage.getInstance().deleteAllData()
+                                            } catch (_: Exception) {
+                                            }
+                                            WebPool.webView?.clearCache(true)
+                                            CookieManager.getInstance().removeAllCookies(null)
+                                            CookieManager.getInstance().flush()
+                                            WebLog.log("web", "site data cleared, reloading")
+                                            WebPool.webView?.reload()
+                                            Toast.makeText(context, "已清除站点数据并刷新", Toast.LENGTH_SHORT).show()
+                                        }
+                                        8 -> onOpenLogs()
+                                    }
+                                },
+                            )
+                        }
                     }
                 }
-            }
-            if (!immersive) {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(1.dp)
-                        .background(p.border),
-                )
-            }
-            if (progress in 1..99) {
-                Box(
-                    Modifier
-                        .fillMaxWidth(progress / 100f)
-                        .height(2.dp)
-                        .background(p.brand),
-                )
+                if (!focus) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(1.dp)
+                            .background(p.border),
+                    )
+                }
+                if (progress in 1..99) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth(progress / 100f)
+                            .height(2.dp)
+                            .background(p.brand),
+                    )
+                }
             }
         }
 

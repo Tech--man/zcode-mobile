@@ -35,7 +35,8 @@ class ServerStore(context: Context) {
     // 注：z.ai 远程页自带深色主题（html.dark），此开关对其无效，仅影响其他站点。
     var webLightScheme by mutableStateOf(prefs.getBoolean(KEY_WEB_LIGHT, false))
         private set
-    // 沉浸模式（隐藏系统栏）默认关闭：视觉更接近全屏，但系统栏仍可由用户唤回。
+    // 专注模式（原沉浸模式，沿用 immersive 键）默认关闭：系统栏常驻，顶栏隐藏，
+    // 网页内下拉唤出、上滑隐没。
     var immersive by mutableStateOf(prefs.getBoolean(KEY_IMMERSIVE, false))
         private set
 
