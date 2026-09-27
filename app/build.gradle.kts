@@ -1,3 +1,17 @@
+import java.util.Properties
+
+// 签名材料本地生成（release.keystore + keystore.properties，均不入库）；
+// 缺失时不签名，保证裸 clone 也能构建
+val keystoreProps = Properties().apply {
+    val f = rootProject.file("keystore.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+val keystoreFile = rootProject.file(keystoreProps.getProperty("storeFile") ?: "release.keystore")
+val hasReleaseSigning = keystoreFile.exists() &&
+    !keystoreProps.getProperty("storePassword").isNullOrBlank() &&
+    !keystoreProps.getProperty("keyAlias").isNullOrBlank() &&
+    !keystoreProps.getProperty("keyPassword").isNullOrBlank()
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -12,13 +26,25 @@ android {
         applicationId = "dev.xray.zcode"
         minSdk = 26
         targetSdk = 35
-        versionCode = 22
-        versionName = "2.10"
+        versionCode = 1
+        versionName = "0.0.1"
+    }
+
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = keystoreFile
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (hasReleaseSigning) signingConfig = signingConfigs.getByName("release")
         }
     }
 

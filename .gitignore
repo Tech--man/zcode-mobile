@@ -24,3 +24,8 @@ local.properties
 
 # 本地文档（仅本机保留，不入库）
 docs/
+
+# 签名材料（本地生成，密码在 keystore.properties；CI 走 GitHub secrets）
+*.keystore
+*.jks
+keystore.properties

@@ -19,6 +19,7 @@
 - 产物：`app/build/outputs/apk/debug/app-debug.apk`
 - `dist/` 存放当前版本 APK 归档（不入库，旧版本随手清理）
 - 环境：compileSdk/targetSdk 35，minSdk 26
+- Release 签名：本地 `release.keystore` + `keystore.properties`（随机生成，不入库）；或推送 `v*` tag，由 GitHub Actions 用仓库 secrets 签名构建并发布 Release
 
 ## 架构约束（改 UI 前必读）
 
@@ -48,6 +49,7 @@ app/src/main/java/dev/xray/zcode/
 
 | 版本 | 要点 |
 | --- | --- |
+| v0.0.1 | 版本号重制（原 v2.x 线归档）；release 本地签名 + tag 触发 GitHub Actions 构建 |
 | v2.10 | 专注模式取代沉浸模式：系统栏常驻，顶栏下拉唤出 / 上滑隐没 |
 | v2.9 | 修复黑屏根因：WebView 移出 Compose `AndroidView` 宿主 |
 | v2.1 | WebView 壳 + dvh 塌陷 shim + 全链路诊断日志 |
