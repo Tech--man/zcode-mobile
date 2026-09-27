@@ -1,12 +1,23 @@
-*.iml
-.gradle/
-local.properties
-.idea/
-.DS_Store
+# 构建产物（APK 归档见 dist/，仅保留当前版本）
 build/
 app/build/
+dist/
+out/
 captures/
 .externalNativeBuild/
 .cxx/
-dist/
-out/
+
+# Gradle / IDE 本地缓存
+.gradle/
+.kotlin/
+local.properties
+.idea/
+*.iml
+.DS_Store
+
+# 工具链本地状态（安全扫描 / 复刻契约 / 会话计划等，不属于工程内容）
+.mimosa/
+.v2c/
+.video_agent/
+.zcode/
+.zcodeignore
