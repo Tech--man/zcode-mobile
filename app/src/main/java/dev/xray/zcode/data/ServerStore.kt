@@ -39,6 +39,10 @@ class ServerStore(context: Context) {
     // 网页内下拉唤出、上滑隐没。
     var immersive by mutableStateOf(prefs.getBoolean(KEY_IMMERSIVE, false))
         private set
+    // GitHub 访问令牌（在线更新用）：仓库私有时匿名 API/下载均 404，需用户自备
+    // 细粒度 PAT（仅 Contents:Read）。仅存本机 SharedPreferences。
+    var githubToken by mutableStateOf(prefs.getString(KEY_GITHUB_TOKEN, "").orEmpty())
+        private set
 
     fun recordConnection(url: String) {
         val list = servers.filter { it.url != url } + ServerEntry(url, System.currentTimeMillis())
@@ -82,6 +86,19 @@ class ServerStore(context: Context) {
         prefs.edit().putBoolean(KEY_IMMERSIVE, enabled).apply()
     }
 
+    /** 启动自动检查更新的节流：距上次检查不足间隔则跳过，避免每次冷启动都打 GitHub API。 */
+    fun shouldAutoCheckUpdate(): Boolean =
+        System.currentTimeMillis() - prefs.getLong(KEY_UPDATE_CHECK, 0L) > AUTO_CHECK_INTERVAL_MS
+
+    fun markUpdateChecked() {
+        prefs.edit().putLong(KEY_UPDATE_CHECK, System.currentTimeMillis()).apply()
+    }
+
+    fun applyGithubToken(value: String) {
+        githubToken = value.trim()
+        prefs.edit().putString(KEY_GITHUB_TOKEN, githubToken).apply()
+    }
+
     private fun persist() {
         val arr = JSONArray()
         servers.forEach {
@@ -115,7 +132,10 @@ class ServerStore(context: Context) {
         private const val KEY_DESKTOP_UA = "desktopUa"
         private const val KEY_WEB_LIGHT = "webLightScheme"
         private const val KEY_IMMERSIVE = "immersive"
+        private const val KEY_UPDATE_CHECK = "lastUpdateCheck"
+        private const val KEY_GITHUB_TOKEN = "githubToken"
         private const val MAX_SERVERS = 20
+        private const val AUTO_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000L
 
         /** attachBaseContext 阶段读取主题（store 尚未创建）。 */
         fun readThemeMode(base: Context): ThemeMode =

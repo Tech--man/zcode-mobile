@@ -216,6 +216,9 @@ fun HomeScreen(
                 Spacer(Modifier.height(8.dp))
             }
         }
+        Spacer(Modifier.height(28.dp))
+        // 版本行 + 更新检测（含启动静默检查与更新弹窗）
+        dev.xray.zcode.update.UpdateSection(store)
         Spacer(Modifier.height(24.dp))
     }
 }

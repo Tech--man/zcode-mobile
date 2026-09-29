@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 在线更新 APK 的共享路径：filesDir/update/，与 UpdateManager.apkFile 对应 -->
+<paths>
+    <files-path name="update" path="update/" />
+</paths>

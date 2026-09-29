@@ -5,6 +5,7 @@
 ## 功能
 
 - **连接**：扫码（CameraX + ML Kit）/ 粘贴链接 / 历史记录一键重连，多服务器本地保存
+- **在线更新**：检查 GitHub Release 新版本（启动静默 + 手动），应用内下载 APK 并拉起安装，需在系统设置允许本应用「安装未知应用」。仓库**公开**时免配置（API 被限流时自动降级为 releases 页重定向探测）；仓库**私有**时匿名请求一律 404，需长按首页「版本」行配置细粒度 PAT（仅本仓库 · 只读 Contents，仅存本机）
 - **专注模式**：系统栏常驻，应用顶栏默认隐藏；网页内**下拉唤出**（半透明浮层）、**上滑立即隐没**；页面加载时自动浮现显示进度条
 - **会话保持**：WebView 池化复用，跨页面导航不打断 ZCode 会话
 - **菜单工具**：刷新 / 桌面 UA / 网页浅色兼容 / 视口探针 / 外部打开 / 复制链接 / 清除站点数据 / 调试日志
@@ -41,6 +42,7 @@ app/src/main/java/dev/xray/zcode/
 │   ├── LogScreen.kt         # 调试日志页
 │   ├── WebLog.kt / Diagnostics.kt / DebugViewportActivity.kt
 ├── scan/ScanScreen.kt       # 扫码
+├── update/                  # 版本检测 / APK 下载安装 / 更新 UI
 ├── ui/                      # Theme / 组件
 └── data/                    # ServerStore（偏好）/ UrlUtils
 ```
